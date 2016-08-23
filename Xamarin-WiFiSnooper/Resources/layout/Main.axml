@@ -3,7 +3,6 @@
     android:orientation="vertical"
     android:layout_width="fill_parent"
     android:layout_height="fill_parent">
-  
     <Button
         android:id="@+id/MyButton"
         android:layout_width="fill_parent"
@@ -12,16 +11,13 @@
         android:layout_marginTop="50dp"
         android:layout_marginLeft="20dp"
         android:layout_marginRight="20dp" />
-
-  <ListView android:id="@+id/NetworkListView"
+    <ListView
+        android:id="@+id/NetworkListView"
         android:layout_width="fill_parent"
         android:layout_height="wrap_content">
-
     <!--<ActivityIndicator
       IsVisible="{Binding IsBusy}"
       IsRunning="{Binding IsBusy}"
       Color="Black" />-->
-    
-  </ListView>
-  
+    </ListView>
 </LinearLayout>

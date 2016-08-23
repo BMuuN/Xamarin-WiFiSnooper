@@ -17,6 +17,7 @@ using WiFiSnooper.Models;
 
 namespace WiFiSnooper
 {
+    using Android.Net;
     using Android.Views;
 
     using WiFiSnooper.ViewModels;
@@ -32,6 +33,9 @@ namespace WiFiSnooper
         // WiFi variables
         private static WifiManager wifi;
         private static List<WiFiNetwork> wiFiNetworks;
+        private static NetworkLocation wiFiLocation;
+        private static NetworkAddress wiFiAddress;
+
         private ListView listView;
 
         // location variables
@@ -64,7 +68,7 @@ namespace WiFiSnooper
             
             listView = FindViewById<ListView>(Resource.Id.NetworkListView);
             listView.FastScrollEnabled = true;
-            //listView.OnItemClickListener += OnListItemClick;
+            listView.ItemClick += NetworkListView_ItemClick;
 
             // Init location manager
             InitializeLocationManager();
@@ -94,16 +98,65 @@ namespace WiFiSnooper
             // Get a handle to the Wifi
             wifi = (WifiManager)context.GetSystemService(Context.WifiService);
 
+            // check wifi is not disabled
+            if (wifi.WifiState != WifiState.Enabled)
+            {
+                Android.Widget.Toast.MakeText(this, "WiFi disabled, enabling wifi network...", Android.Widget.ToastLength.Short).Show();
+                wifi.SetWifiEnabled(true);
+                Task.Delay(3000);
+            }
+
             // Start a scan and register the Broadcast receiver to get the list of Wifi Networks
             var wifiReceiver = new WifiReceiver();
-            context.RegisterReceiver(wifiReceiver, new IntentFilter(WifiManager.ScanResultsAvailableAction));
+            var wifiSignal = new WiFiSignalChanged();
+            context.RegisterReceiver(wifiReceiver, new IntentFilter(WifiManager.ScanResultsAvailableAction)); // list of networks changed
+            //context.RegisterReceiver(wifiSignal, new IntentFilter(WifiManager.RssiChangedAction)); // signal strength changed
             wifi.StartScan();
         }
 
+        /// <summary>
+        /// Amend signal strength
+        /// </summary>
+        private class WiFiSignalChanged : BroadcastReceiver
+        {
+            public override void OnReceive(Context context, Intent intent)
+            {
+                // if wifi has been disabled then don't retrieve the results
+                WifiManager wifi = (WifiManager)context.GetSystemService(Context.WifiService);
+                if (!wifi.IsWifiEnabled) return;
+
+                // get the network for which the signal has changed
+                var scanWiFiNetworks = wifi.ScanResults;
+                var network = scanWiFiNetworks.Single(n => n.Bssid.ToLower() == wifi.ConnectionInfo.BSSID.ToLower());
+                if (network == null) return;
+
+                var wifiNetwork = wiFiNetworks.Single(n => n.BSSID.ToLower() == network.Bssid.ToLower());
+
+                // calculate the signal
+                int level = WifiManager.CalculateSignalLevel(wifi.ConnectionInfo.Rssi, network.Level);
+                int difference = level * 100 / network.Level;
+                int signalStrength = 0;
+
+                if (difference >= 100) wifiNetwork.SignalStrength = 4;
+                else if (difference >= 75) wifiNetwork.SignalStrength = 3;
+                else if (difference >= 50) wifiNetwork.SignalStrength = 2;
+                else if (difference >= 25) wifiNetwork.SignalStrength = 1;
+
+                //tv.setText(tv.getText() + "\nDifference :" + difference + " signal state:" + signalStrength);
+            }
+        }
+
+        /// <summary>
+        /// List avialble WiFi networks
+        /// </summary>
         private class WifiReceiver : BroadcastReceiver
         {
             public override void OnReceive(Context context, Intent intent)
             {
+                // if wifi has been disabled then don't retrieve the results
+                WifiManager wifi = (WifiManager)context.GetSystemService(Context.WifiService);
+                if (!wifi.IsWifiEnabled) return;
+
                 var scanWiFiNetworks = wifi.ScanResults;
                 foreach (ScanResult wifinetwork in scanWiFiNetworks)
                 {
@@ -114,10 +167,25 @@ namespace WiFiSnooper
                         Frequency = wifinetwork.Frequency,
                         Capabilities = wifinetwork.Capabilities,
                         //TimeStamp = DateTimeOffset.FromFileTime(wifinetwork.Timestamp)
-                        TimeStamp = DateTimeOffset.Now
+                        TimeStamp = DateTimeOffset.Now,
+                        Location =  wiFiLocation,
+                        Address = wiFiAddress
                     };
+                    
+                    // calculate the signal
+                    int level = WifiManager.CalculateSignalLevel(wifi.ConnectionInfo.Rssi, wifinetwork.Level);
+                    int difference = level * 100 / wifinetwork.Level;
+                    int signalStrength = 0;
 
-                    wiFiNetworks.Add(network);
+                    if (difference >= 100) network.SignalStrength = 4;
+                    else if (difference >= 75) network.SignalStrength = 3;
+                    else if (difference >= 50) network.SignalStrength = 2;
+                    else if (difference >= 25) network.SignalStrength = 1;
+                    
+                    if (!wiFiNetworks.Exists(n => n.SSID == network.SSID && n.BSSID == network.BSSID))
+                    {
+                        wiFiNetworks.Add(network);
+                    }
                 }
 
                 thisActivity.UpdateList();
@@ -128,15 +196,25 @@ namespace WiFiSnooper
         {
             var listAdapter = new WiFiListAdapter(thisActivity, wiFiNetworks);
             listView.Adapter = listAdapter;
-            //ListView.OnItemClickListener += OnListItemClick;
+            //listView.ItemClick += NetworkListView_ItemClick;
             ViewModel.IsBusy = false; // hide the spinner notification
         }
 
-        //protected override void OnListItemClick(ListView l, View v, int position, long id)
-        //{
-        //    var t = wiFiNetworks[position];
-        //    Android.Widget.Toast.MakeText(this, t.SSID, Android.Widget.ToastLength.Short).Show();
-        //}
+        protected void NetworkListView_ItemClick(object sender, AdapterView.ItemClickEventArgs e)
+        {
+            var network = wiFiNetworks[e.Position];
+            //Android.Widget.Toast.MakeText(this, network.SSID, Android.Widget.ToastLength.Short).Show();
+
+            if (network.Location == null)
+            {
+                Android.Widget.Toast.MakeText(this, "Location data not available for  this network.", Android.Widget.ToastLength.Short).Show();
+                return;
+            }
+            
+            var geoUri = Android.Net.Uri.Parse($"geo:{network.Location.Latitude},{network.Location.Longitude}");
+            var mapIntent = new Intent(Intent.ActionView, geoUri);
+            StartActivity(mapIntent);
+        }
 
         #endregion
 
@@ -173,7 +251,8 @@ namespace WiFiSnooper
                                              Speed = this.currentLocation.HasSpeed ? this.currentLocation.Speed : 0,
                                              Bearing = this.currentLocation.HasBearing ? this.currentLocation.Bearing : 0,
                                              Time = this.currentLocation.Time
-            };
+                                         };
+            wiFiLocation = objNetworkLocation;
 
             Address address = await ReverseGeocodeCurrentLocation();
             DisplayAddress(address);
@@ -209,6 +288,7 @@ namespace WiFiSnooper
                 }
 
                 var objAddress = new NetworkAddress(deviceAddress.ToString());
+                wiFiAddress = objAddress;
 
                 // Remove the last comma from the end of the address.
                 //_addressText.Text = deviceAddress.ToString();
