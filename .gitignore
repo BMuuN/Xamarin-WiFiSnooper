@@ -3,3 +3,6 @@
 ################################################################################
 
 /.vs/Xamarin-WiFiSnooper/v14
+/packages
+/Xamarin-WiFiSnooper/bin/Debug
+/Xamarin-WiFiSnooper/obj/Debug
