@@ -241,6 +241,12 @@ namespace WiFiSnooper
             // get last known location
             this.currentLocation = locationManager.GetLastKnownLocation(this.locationProvider);
 
+            if (currentLocation == null)
+            {
+                Android.Widget.Toast.MakeText(this, "Unable to determine location", Android.Widget.ToastLength.Short).Show();
+                return;
+            }
+
             var objNetworkLocation = new NetworkLocation()
                                          {
                                              Provider = this.currentLocation.Provider,
@@ -271,10 +277,19 @@ namespace WiFiSnooper
 
         private async Task<Address> ReverseGeocodeCurrentLocation()
         {
-            Geocoder geoCoder = new Geocoder(this);
-            IList<Address> addressList = await geoCoder.GetFromLocationAsync(this.currentLocation.Latitude, this.currentLocation.Longitude, 10);
-            Address address = addressList.FirstOrDefault();
-            return address;
+            try
+            {
+                Geocoder geoCoder = new Geocoder(this);
+                IList<Address> addressList = await geoCoder.GetFromLocationAsync(this.currentLocation.Latitude, this.currentLocation.Longitude, 10);
+                Address address = addressList.FirstOrDefault();
+                return address;
+            }
+            catch (Exception)
+            {
+                Android.Widget.Toast.MakeText(this, "Unable to retrieve address from server", Android.Widget.ToastLength.Short).Show();
+            }
+
+            return null;
         }
 
         private void DisplayAddress(Address address)
